@@ -1,103 +1,80 @@
-// backend/worker.js
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { bearerAuth } from "hono/bearer-auth";
-import { drizzle } from "drizzle-orm/d1";
+import { jwt } from "hono/jwt";
+import { nanoid } from "nanoid";
+import bcrypt from "bcryptjs";
 
-const app = new Hono();
+// JWT secret
+const JWT_SECRET = "supersecret";
 
-app.use("*", cors());
-
-// Middleware for auth
-app.use("/api/*", async (c, next) => {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader) return c.json({ error: "Unauthorized" }, 401);
-
-  const token = authHeader.replace("Bearer ", "");
-  try {
-    const user = JSON.parse(atob(token.split(".")[1])); // simple JWT decode
-    c.set("user", user);
-    await next();
-  } catch {
-    return c.json({ error: "Invalid token" }, 401);
-  }
-});
-
-// DB helper
-function getDB(c) {
-  return drizzle(c.env.DB);
+// Helper: Create JWT
+function createJWT(user) {
+  return jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, {
+    expiresIn: "7d",
+  });
 }
 
-/**
- * ========================
- * ORDERS CHAT + IMAGE UPLOAD
- * ========================
- */
+// Helper: Verify JWT
+function verifyJWT(token) {
+  return jwt.verify(token, JWT_SECRET);
+}
 
-// fetch messages for order
-app.get("/api/orders/:id/chat", async (c) => {
-  const db = getDB(c);
-  const orderId = c.req.param("id");
+const app = new Hono();
+app.use("*", cors());
 
-  const rows = await db
-    .prepare("SELECT * FROM order_chats WHERE order_id = ? ORDER BY created_at ASC")
-    .bind(orderId)
-    .all();
+// ---------------- AUTH ----------------
+app.post("/api/signup", async (c) => {
+  const { name, email, password } = await c.req.json();
+  const hash = await bcrypt.hash(password, 10);
 
-  return c.json(rows.results || []);
-});
-
-// send message (text + optional image)
-app.post("/api/orders/:id/chat", async (c) => {
-  const db = getDB(c);
-  const orderId = c.req.param("id");
-  const user = c.get("user");
-
-  const body = await c.req.parseBody();
-
-  const message = body["message"] || null;
-  let image_url = null;
-
-  if (body["image"]) {
-    // Store in Cloudflare R2 bucket
-    const file = body["image"];
-    const key = `chat/${orderId}/${Date.now()}-${file.name}`;
-    await c.env.R2_BUCKET.put(key, file.stream());
-    image_url = `https://${c.env.R2_BUCKET_NAME}.r2.cloudflarestorage.com/${key}`;
-  }
-
-  await db
-    .prepare(
-      "INSERT INTO order_chats (order_id, sender, message, image_url) VALUES (?, ?, ?, ?)"
-    )
-    .bind(orderId, user.email, message, image_url)
+  // Insert user
+  const { success, error } = await c.env.DB.prepare(
+    "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)"
+  )
+    .bind(name, email, hash)
     .run();
 
-  return c.json({ success: true });
-});
+  if (!success) return c.json({ error }, 400);
 
-/**
- * ========================
- * ORDERS (basic list for tracking page)
- * ========================
- */
-app.get("/api/orders", async (c) => {
-  const db = getDB(c);
-  const user = c.get("user");
-
-  const rows = await db
-    .prepare(
-      "SELECT o.*, p.name as product_name FROM orders o JOIN products p ON o.product_id = p.id WHERE o.buyer_id = ? OR p.user_id = ?"
-    )
-    .bind(user.id, user.id)
+  // Auto-create subaccount
+  const { results } = await c.env.DB.prepare(
+    "SELECT id FROM users WHERE email = ?"
+  )
+    .bind(email)
     .all();
 
-  return c.json(rows.results || []);
+  if (results && results.length > 0) {
+    await c.env.DB.prepare(
+      "INSERT INTO subaccounts (user_id, name, balance) VALUES (?, ?, 0)"
+    )
+      .bind(results[0].id, `${name}'s account`)
+      .run();
+  }
+
+  return c.json({ message: "User created. Please login." });
 });
 
-export default app;
-// Handle role-based order actions
-app.post("/api/orders/:id/action", async (c) => {
+app.post("/api/login", async (c) => {
+  const { email, password } = await c.req.json();
+  const { results } = await c.env.DB.prepare(
+    "SELECT * FROM users WHERE email = ?"
+  )
+    .bind(email)
+    .all();
+
+  if (!results || results.length === 0)
+    return c.json({ error: "Invalid credentials" }, 401);
+
+  const user = results[0];
+  const valid = await bcrypt.compare(password, user.password_hash);
+  if (!valid) return c.json({ error: "Invalid credentials" }, 401);
+
+  const token = createJWT(user);
+  return c.json({ token, user });
+});
+
+// ---------------- KYC ----------------
+app.post("/api/kyc", async (c) => {
   const auth = c.req.header("Authorization");
   if (!auth) return c.json({ error: "Unauthorized" }, 401);
 
@@ -108,62 +85,63 @@ app.post("/api/orders/:id/action", async (c) => {
     return c.json({ error: "Invalid token" }, 401);
   }
 
-  const { id } = c.req.param();
-  const { action } = await c.req.json();
+  // Simulate Gemini AI KYC verification
+  const { docImage, faceImage } = await c.req.json();
+  if (!docImage || !faceImage)
+    return c.json({ error: "Document & face required" }, 400);
 
-  // fetch current order
+  // Fake AI call
+  const verified = true; // Assume success
+  if (verified) {
+    await c.env.DB.prepare(
+      "UPDATE users SET is_kyc_verified = 1 WHERE id = ?"
+    )
+      .bind(payload.userId)
+      .run();
+    return c.json({ success: true, message: "KYC Verified" });
+  }
+
+  return c.json({ error: "KYC failed" }, 400);
+});
+
+// ---------------- PRODUCTS ----------------
+app.post("/api/products", async (c) => {
+  const auth = c.req.header("Authorization");
+  if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
+  let payload;
+  try {
+    payload = verifyJWT(auth.split(" ")[1]);
+  } catch (e) {
+    return c.json({ error: "Invalid token" }, 401);
+  }
+
+  // Only KYC verified users can list
   const { results } = await c.env.DB.prepare(
-    "SELECT * FROM orders WHERE id = ?"
-  ).bind(id).all();
+    "SELECT is_kyc_verified FROM users WHERE id = ?"
+  )
+    .bind(payload.userId)
+    .all();
+  if (!results[0].is_kyc_verified)
+    return c.json({ error: "KYC required" }, 403);
 
-  if (!results || results.length === 0) {
-    return c.json({ error: "Order not found" }, 404);
-  }
-
-  const order = results[0];
-  let newStatus = order.status;
-
-  // Role-based transitions
-  if (payload.role === "buyer") {
-    if (action === "confirm" && order.status === "delivered") {
-      newStatus = "completed"; // release escrow
-    }
-    if (action === "dispute" && order.status === "delivered") {
-      newStatus = "disputed";
-    }
-  }
-
-  if (payload.role === "seller") {
-    if (action === "ship" && order.status === "paid") {
-      newStatus = "shipped";
-    }
-  }
-
-  if (payload.role === "logistics") {
-    if (action === "deliver" && order.status === "shipped") {
-      newStatus = "delivered";
-    }
-  }
-
-  if (payload.role === "admin" || payload.role === "support") {
-    if (action === "override") {
-      newStatus = "overridden";
-    }
-  }
-
-  if (newStatus === order.status) {
-    return c.json({ message: "Invalid action for current status" }, 400);
-  }
-
-  // update order status
+  const { name, description, price, quantity } = await c.req.json();
   await c.env.DB.prepare(
-    "UPDATE orders SET status = ? WHERE id = ?"
-  ).bind(newStatus, id).run();
+    "INSERT INTO products (user_id, name, description, price, quantity) VALUES (?, ?, ?, ?, ?)"
+  )
+    .bind(payload.userId, name, description, price, quantity)
+    .run();
 
-  return c.json({ message: `Order updated to ${newStatus}`, newStatus });
+  return c.json({ success: true, message: "Product added" });
 });
-// Handle role-based order actions with escrow simulation
-app.post("/api/orders/:id/action", async (c) => {
+
+app.get("/api/products", async (c) => {
+  const { results } = await c.env.DB.prepare("SELECT * FROM products").all();
+  return c.json(results);
+});
+
+// ---------------- ORDERS + ESCROW ----------------
+app.post("/api/orders", async (c) => {
   const auth = c.req.header("Authorization");
   if (!auth) return c.json({ error: "Unauthorized" }, 401);
 
@@ -174,91 +152,129 @@ app.post("/api/orders/:id/action", async (c) => {
     return c.json({ error: "Invalid token" }, 401);
   }
 
-  const { id } = c.req.param();
+  const { productId, quantity } = await c.req.json();
+  const { results } = await c.env.DB.prepare(
+    "SELECT price FROM products WHERE id = ?"
+  )
+    .bind(productId)
+    .all();
+
+  if (!results || results.length === 0)
+    return c.json({ error: "Product not found" }, 404);
+
+  const total = results[0].price * quantity;
+
+  await c.env.DB.prepare(
+    "INSERT INTO orders (buyer_id, product_id, quantity, total_amount, status, escrow_locked) VALUES (?, ?, ?, ?, 'paid', 1)"
+  )
+    .bind(payload.userId, productId, quantity, total)
+    .run();
+
+  return c.json({ success: true, message: "Order placed, funds in escrow" });
+});
+
+app.post("/api/orders/:id/action", async (c) => {
+  const orderId = c.req.param("id");
   const { action } = await c.req.json();
 
-  // fetch current order
+  const auth = c.req.header("Authorization");
+  if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
+  let payload;
+  try {
+    payload = verifyJWT(auth.split(" ")[1]);
+  } catch (e) {
+    return c.json({ error: "Invalid token" }, 401);
+  }
+
   const { results } = await c.env.DB.prepare(
     "SELECT * FROM orders WHERE id = ?"
-  ).bind(id).all();
-
-  if (!results || results.length === 0) {
+  )
+    .bind(orderId)
+    .all();
+  if (!results || results.length === 0)
     return c.json({ error: "Order not found" }, 404);
-  }
 
   const order = results[0];
   let newStatus = order.status;
-  let escrowLocked = order.escrow_locked;
 
-  // 🛒 Buyer Actions
+  // 🛍️ Seller confirms shipment
+  if (payload.role === "user" && action === "ship") {
+    newStatus = "shipped";
+  }
+
+  // 🚚 Logistics confirms delivery
+  if (payload.role === "logistics" && action === "deliver") {
+    newStatus = "delivered";
+  }
+
+  // 🛒 Buyer confirms receipt
   if (payload.role === "buyer") {
     if (action === "confirm" && order.status === "delivered") {
       newStatus = "completed";
-      escrowLocked = 0; // release escrow to seller
+
+      // 💰 Release escrow into seller’s subaccount
+      await c.env.DB.prepare(
+        "UPDATE subaccounts SET balance = balance + ? WHERE user_id = (SELECT user_id FROM products WHERE id = ?)"
+      )
+        .bind(order.total_amount, order.product_id)
+        .run();
     }
-    if (action === "dispute" && order.status === "delivered") {
+    if (action === "dispute") {
       newStatus = "disputed";
     }
   }
 
-  // 📦 Seller Actions
-  if (payload.role === "seller") {
-    if (action === "ship" && order.status === "paid") {
-      newStatus = "shipped";
-    }
-  }
+  await c.env.DB.prepare("UPDATE orders SET status = ? WHERE id = ?")
+    .bind(newStatus, orderId)
+    .run();
 
-  // 🚚 Logistics Actions
-  if (payload.role === "logistics") {
-    if (action === "deliver" && order.status === "shipped") {
-      newStatus = "delivered";
-    }
-  }
-
-  // 🛡️ Admin / Support Actions
-  if (payload.role === "admin" || payload.role === "support") {
-    if (action === "override") {
-      newStatus = "overridden";
-      escrowLocked = 0; // force release if admin decides
-    }
-  }
-
-  if (newStatus === order.status) {
-    return c.json({ message: "Invalid action for current status" }, 400);
-  }
-
-  // update order in DB
-  await c.env.DB.prepare(
-    "UPDATE orders SET status = ?, escrow_locked = ? WHERE id = ?"
-  ).bind(newStatus, escrowLocked, id).run();
-
-  // optional: create a notification entry
-  await c.env.DB.prepare(
-    "INSERT INTO notifications (user_id, message) VALUES (?, ?)"
-  ).bind(order.buyer_id, `Order #${id} status updated to ${newStatus}`).run();
-
-  return c.json({
-    message: `Order updated to ${newStatus}`,
-    newStatus,
-    escrowReleased: escrowLocked === 0
-  });
+  return c.json({ success: true, status: newStatus });
 });
-// 🛒 Buyer Actions
-if (payload.role === "buyer") {
-  if (action === "confirm" && order.status === "delivered") {
-    newStatus = "completed";
-    escrowLocked = 0; // release escrow
 
-    // 💰 Credit seller’s subaccount balance
-    await c.env.DB.prepare(`
-      UPDATE subaccounts 
-      SET balance = balance + ? 
-      WHERE user_id = (
-        SELECT user_id FROM products WHERE id = ?
-      )
-    `).bind(order.total_amount, order.product_id).run();
+// ---------------- BALANCE ----------------
+app.get("/api/balance", async (c) => {
+  const auth = c.req.header("Authorization");
+  if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
+  let payload;
+  try {
+    payload = verifyJWT(auth.split(" ")[1]);
+  } catch (e) {
+    return c.json({ error: "Invalid token" }, 401);
   }
-  if (action === "dispute" && order.status === "delivered") {
-    newStatus = "disputed";
+
+  const { results } = await c.env.DB.prepare(
+    "SELECT balance FROM subaccounts WHERE user_id = ?"
+  )
+    .bind(payload.userId)
+    .all();
+
+  if (!results || results.length === 0)
+    return c.json({ error: "No subaccount found" }, 404);
+
+  return c.json({ balance: results[0].balance });
+});
+
+// ---------------- NOTIFICATIONS ----------------
+app.get("/api/notifications", async (c) => {
+  const auth = c.req.header("Authorization");
+  if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
+  let payload;
+  try {
+    payload = verifyJWT(auth.split(" ")[1]);
+  } catch (e) {
+    return c.json({ error: "Invalid token" }, 401);
   }
-}
+
+  const { results } = await c.env.DB.prepare(
+    "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC"
+  )
+    .bind(payload.userId)
+    .all();
+
+  return c.json(results);
+});
+
+export default app;
