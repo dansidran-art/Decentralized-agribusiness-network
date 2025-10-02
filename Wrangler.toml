@@ -20,3 +20,6 @@ binding = "AI"
 # Add any environment variables if needed
 [vars]
 JWT_SECRET = "super-secret-key"
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "agrinetwork-chat"
