@@ -50,3 +50,55 @@ function App() {
 }
 
 export default App;
+// frontend/src/App.jsx
+import React, { useState, useEffect } from "react";
+import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import Signup from "./pages/Signup";
+import Login from "./pages/Login";
+import Marketplace from "./pages/Marketplace";
+import AdminPanel from "./pages/AdminPanel";
+import OrderTracking from "./pages/OrderTracking"; // ✅ new import
+import Navbar from "./components/Navbar";
+
+function App() {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("user");
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+    }
+  }, []);
+
+  const handleLogin = (userData) => {
+    setUser(userData);
+    localStorage.setItem("user", JSON.stringify(userData));
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem("user");
+  };
+
+  return (
+    <Router>
+      <Navbar user={user} onLogout={handleLogout} />
+      <div className="p-4">
+        <Routes>
+          <Route path="/" element={<Marketplace user={user} />} />
+          <Route path="/signup" element={<Signup onSignup={handleLogin} />} />
+          <Route path="/login" element={<Login onLogin={handleLogin} />} />
+          
+          {/* ✅ New order tracking route */}
+          <Route path="/orders" element={<OrderTracking user={user} />} />
+
+          {user?.role === "admin" && (
+            <Route path="/admin" element={<AdminPanel user={user} />} />
+          )}
+        </Routes>
+      </div>
+    </Router>
+  );
+}
+
+export default App;
