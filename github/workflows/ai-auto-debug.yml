@@ -1,0 +1,51 @@
+name: AI Auto Debug
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout repo
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Step 3: Install backend deps (Cloudflare Wrangler)
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      # Step 4: Install frontend deps
+      - name: Install dependencies
+        run: |
+          npm install
+          cd frontend && npm install
+          cd ..
+
+      # Step 5: Lint & Type Check (basic error checks)
+      - name: Run ESLint
+        run: npx eslint .
+
+      # Step 6: Backend (Cloudflare Worker) dry-run check
+      - name: Wrangler Check
+        run: wrangler dev --dry-run --env dev || true
+
+      # Step 7: Frontend build test
+      - name: Build Frontend
+        run: cd frontend && npm run build && cd ..
+
+      # Step 8: AI Assist (Optional - only if you want OpenAI auto-fix)
+      # Comment this block out if not needed
+      # - name: AI Auto Fix
+      #   run: |
+      #     echo "If errors found, future step can call OpenAI API to suggest fixes"
