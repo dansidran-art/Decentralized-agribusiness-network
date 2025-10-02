@@ -30,6 +30,7 @@ const Navbar = ({ user, setUser }) => {
             <Link to="/products" className="mr-4">Marketplace</Link>
             <Link to="/orders" className="mr-4">Orders</Link>
             <Link to="/kyc" className="mr-4">KYC</Link>
+            <Link to="/disputes" className="mr-4">Disputes</Link>
             {user.role === "admin" && (
               <Link to="/admin" className="mr-4 text-red-300">Admin Panel</Link>
             )}
@@ -99,7 +100,7 @@ const KYC = ({ user }) => {
 
   const submit = async () => {
     const res = await api("/kyc", "POST", {
-      userId: 1, // demo only
+      userId: 1,
       documentImage: doc,
       selfieImage: selfie
     });
@@ -177,6 +178,49 @@ const Orders = () => {
   );
 };
 
+// --- Disputes (with AI chat + file upload) ---
+const Disputes = () => {
+  const [orderId, setOrderId] = useState("");
+  const [chat, setChat] = useState([]);
+  const [msg, setMsg] = useState("");
+  const [file, setFile] = useState(null);
+
+  const send = async () => {
+    let evidenceUrl = null;
+    if (file) {
+      // In real app, upload to storage & get URL
+      evidenceUrl = URL.createObjectURL(file);
+    }
+    const res = await api("/disputes", "POST", {
+      orderId,
+      message: msg,
+      evidence: evidenceUrl
+    });
+    setChat([...chat, { role: "user", text: msg, file: evidenceUrl }]);
+    setChat(c => [...c, { role: "ai", text: res.reply }]);
+    setMsg("");
+    setFile(null);
+  };
+
+  return (
+    <div className="p-4">
+      <h2>Dispute Resolution</h2>
+      <input placeholder="Order ID" value={orderId} onChange={e => setOrderId(e.target.value)} />
+      <div className="border p-2 my-2 h-64 overflow-y-scroll bg-gray-100">
+        {chat.map((c, i) => (
+          <div key={i} className={c.role === "user" ? "text-blue-600" : "text-green-600"}>
+            <p><b>{c.role}:</b> {c.text}</p>
+            {c.file && <img src={c.file} alt="evidence" className="w-32 my-1" />}
+          </div>
+        ))}
+      </div>
+      <input placeholder="Message" value={msg} onChange={e => setMsg(e.target.value)} />
+      <input type="file" onChange={e => setFile(e.target.files[0])} />
+      <button onClick={send}>Send</button>
+    </div>
+  );
+};
+
 // --- Admin Panel ---
 const AdminPanel = () => {
   const [users, setUsers] = useState([]);
@@ -213,6 +257,7 @@ const App = () => {
         <Route path="/kyc" element={<KYC user={user} />} />
         <Route path="/products" element={<Products user={user} />} />
         <Route path="/orders" element={<Orders />} />
+        <Route path="/disputes" element={<Disputes />} />
         <Route path="/admin" element={<AdminPanel />} />
       </Routes>
     </Router>
