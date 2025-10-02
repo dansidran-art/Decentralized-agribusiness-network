@@ -162,3 +162,84 @@ app.post("/api/orders/:id/action", async (c) => {
 
   return c.json({ message: `Order updated to ${newStatus}`, newStatus });
 });
+// Handle role-based order actions with escrow simulation
+app.post("/api/orders/:id/action", async (c) => {
+  const auth = c.req.header("Authorization");
+  if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
+  let payload;
+  try {
+    payload = verifyJWT(auth.split(" ")[1]);
+  } catch (e) {
+    return c.json({ error: "Invalid token" }, 401);
+  }
+
+  const { id } = c.req.param();
+  const { action } = await c.req.json();
+
+  // fetch current order
+  const { results } = await c.env.DB.prepare(
+    "SELECT * FROM orders WHERE id = ?"
+  ).bind(id).all();
+
+  if (!results || results.length === 0) {
+    return c.json({ error: "Order not found" }, 404);
+  }
+
+  const order = results[0];
+  let newStatus = order.status;
+  let escrowLocked = order.escrow_locked;
+
+  // 🛒 Buyer Actions
+  if (payload.role === "buyer") {
+    if (action === "confirm" && order.status === "delivered") {
+      newStatus = "completed";
+      escrowLocked = 0; // release escrow to seller
+    }
+    if (action === "dispute" && order.status === "delivered") {
+      newStatus = "disputed";
+    }
+  }
+
+  // 📦 Seller Actions
+  if (payload.role === "seller") {
+    if (action === "ship" && order.status === "paid") {
+      newStatus = "shipped";
+    }
+  }
+
+  // 🚚 Logistics Actions
+  if (payload.role === "logistics") {
+    if (action === "deliver" && order.status === "shipped") {
+      newStatus = "delivered";
+    }
+  }
+
+  // 🛡️ Admin / Support Actions
+  if (payload.role === "admin" || payload.role === "support") {
+    if (action === "override") {
+      newStatus = "overridden";
+      escrowLocked = 0; // force release if admin decides
+    }
+  }
+
+  if (newStatus === order.status) {
+    return c.json({ message: "Invalid action for current status" }, 400);
+  }
+
+  // update order in DB
+  await c.env.DB.prepare(
+    "UPDATE orders SET status = ?, escrow_locked = ? WHERE id = ?"
+  ).bind(newStatus, escrowLocked, id).run();
+
+  // optional: create a notification entry
+  await c.env.DB.prepare(
+    "INSERT INTO notifications (user_id, message) VALUES (?, ?)"
+  ).bind(order.buyer_id, `Order #${id} status updated to ${newStatus}`).run();
+
+  return c.json({
+    message: `Order updated to ${newStatus}`,
+    newStatus,
+    escrowReleased: escrowLocked === 0
+  });
+});
