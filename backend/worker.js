@@ -243,3 +243,22 @@ app.post("/api/orders/:id/action", async (c) => {
     escrowReleased: escrowLocked === 0
   });
 });
+// 🛒 Buyer Actions
+if (payload.role === "buyer") {
+  if (action === "confirm" && order.status === "delivered") {
+    newStatus = "completed";
+    escrowLocked = 0; // release escrow
+
+    // 💰 Credit seller’s subaccount balance
+    await c.env.DB.prepare(`
+      UPDATE subaccounts 
+      SET balance = balance + ? 
+      WHERE user_id = (
+        SELECT user_id FROM products WHERE id = ?
+      )
+    `).bind(order.total_amount, order.product_id).run();
+  }
+  if (action === "dispute" && order.status === "delivered") {
+    newStatus = "disputed";
+  }
+}
