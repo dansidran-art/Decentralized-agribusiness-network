@@ -158,3 +158,79 @@ app.get("/disputes/:orderId", async (c) => {
   ).bind(orderId).all();
   return c.json(rows.results);
 });
+// ===== Disputes =====
+app.post("/api/disputes/:orderId", async (c) => {
+  const db = c.env.DB;
+  const user = c.get("user");
+  const { orderId } = c.req.param();
+
+  // Check if order exists
+  const order = await db.prepare("SELECT * FROM orders WHERE id = ?")
+    .bind(orderId).first();
+  if (!order) return c.json({ error: "Order not found" }, 404);
+
+  // Create new dispute
+  const dispute = await db.prepare(
+    "INSERT INTO disputes (order_id, opened_by) VALUES (?, ?) RETURNING *"
+  ).bind(orderId, user.id).first();
+
+  return c.json(dispute);
+});
+
+// Get dispute with messages
+app.get("/api/disputes/:orderId", async (c) => {
+  const db = c.env.DB;
+  const { orderId } = c.req.param();
+
+  const dispute = await db.prepare(
+    "SELECT * FROM disputes WHERE order_id = ?"
+  ).bind(orderId).first();
+  if (!dispute) return c.json({ error: "No dispute found" }, 404);
+
+  const messages = await db.prepare(
+    "SELECT dm.*, u.name FROM dispute_messages dm JOIN users u ON dm.user_id = u.id WHERE dispute_id = ? ORDER BY created_at ASC"
+  ).bind(dispute.id).all();
+
+  return c.json({ ...dispute, messages: messages.results });
+});
+
+// Post message (with optional image)
+app.post("/api/disputes/:orderId/messages", async (c) => {
+  const db = c.env.DB;
+  const kv = c.env.KV;
+  const user = c.get("user");
+  const { orderId } = c.req.param();
+
+  const formData = await c.req.formData();
+  const message = formData.get("message");
+  const file = formData.get("image");
+
+  const dispute = await db.prepare("SELECT * FROM disputes WHERE order_id = ?")
+    .bind(orderId).first();
+  if (!dispute) return c.json({ error: "Dispute not found" }, 404);
+
+  let imageKey = null;
+  if (file && typeof file === "object") {
+    imageKey = `disputes/${dispute.id}/${Date.now()}-${file.name}`;
+    await kv.put(imageKey, await file.arrayBuffer());
+  }
+
+  const msg = await db.prepare(
+    "INSERT INTO dispute_messages (dispute_id, user_id, message, image_key) VALUES (?, ?, ?, ?) RETURNING *"
+  ).bind(dispute.id, user.id, message, imageKey).first();
+
+  return c.json(msg);
+});
+
+// Get dispute image from KV
+app.get("/api/disputes/:orderId/images/:key", async (c) => {
+  const kv = c.env.KV;
+  const { key } = c.req.param();
+
+  const image = await kv.get(`disputes/${c.req.param("orderId")}/${key}`, { type: "arrayBuffer" });
+  if (!image) return c.json({ error: "Image not found" }, 404);
+
+  return new Response(image, {
+    headers: { "Content-Type": "image/png" } // adjust if JPEG
+  });
+});
