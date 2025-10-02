@@ -66,3 +66,12 @@ CREATE TABLE IF NOT EXISTS dispute_messages (
   FOREIGN KEY (order_id) REFERENCES orders(id),
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
+CREATE TABLE IF NOT EXISTS order_chats (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL,
+  sender TEXT NOT NULL,
+  message TEXT,
+  image_url TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (order_id) REFERENCES orders(id)
+);
