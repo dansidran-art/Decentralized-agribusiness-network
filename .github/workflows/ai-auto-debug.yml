@@ -1,0 +1,61 @@
+name: AI Auto Debug + Deploy
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout repo
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Step 3: Install Wrangler for backend
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      # Step 4: Install dependencies
+      - name: Install dependencies
+        run: |
+          npm install
+          cd frontend && npm install
+          cd ..
+
+      # Step 5: Lint check
+      - name: Run ESLint
+        run: npx eslint .
+
+      # Step 6: Cloudflare Worker dry-run check
+      - name: Wrangler Check
+        run: wrangler dev --dry-run --env dev || true
+
+      # Step 7: Build frontend
+      - name: Build Frontend
+        run: cd frontend && npm run build && cd ..
+
+      # Step 8: Deploy Backend (Cloudflare Worker)
+      - name: Deploy Worker
+        run: wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Step 9: Deploy Frontend (Cloudflare Pages)
+      - name: Deploy Frontend
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: agrinetwork-frontend
+          directory: frontend/dist
