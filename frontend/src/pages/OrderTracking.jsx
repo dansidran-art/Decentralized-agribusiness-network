@@ -354,3 +354,110 @@ function OrderTracking({ user }) {
 }
 
 export default OrderTracking;
+import React, { useState, useEffect } from "react";
+import OrderChat from "./OrderChat";
+
+function OrderTracking({ user }) {
+  const [orders, setOrders] = useState([]);
+  const token = localStorage.getItem("token");
+
+  useEffect(() => {
+    if (token) {
+      fetch("/api/orders", {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then((res) => res.json())
+        .then((data) => setOrders(data.orders || []))
+        .catch(() => {});
+    }
+  }, [token]);
+
+  const updateOrderStatus = (orderId, action) => {
+    fetch(`/api/orders/${orderId}/action`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ action })
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        alert(data.message);
+        // refresh orders
+        setOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, status: data.newStatus } : o))
+        );
+      });
+  };
+
+  return (
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-4">My Orders</h2>
+      {orders.length === 0 && <p>No orders found.</p>}
+      {orders.map((order) => (
+        <div key={order.id} className="border p-4 mb-6 rounded shadow">
+          <h3 className="font-semibold">
+            Order #{order.id} – {order.status}
+          </h3>
+          <p>Product ID: {order.product_id}</p>
+          <p>Quantity: {order.quantity}</p>
+          <p>Total: ${order.total_amount}</p>
+
+          {/* Role-specific actions */}
+          {user?.role === "buyer" && order.status === "delivered" && (
+            <>
+              <button
+                className="bg-green-600 text-white px-3 py-1 mr-2 mt-2 rounded"
+                onClick={() => updateOrderStatus(order.id, "confirm")}
+              >
+                ✅ Confirm & Release Funds
+              </button>
+              <button
+                className="bg-red-600 text-white px-3 py-1 mt-2 rounded"
+                onClick={() => updateOrderStatus(order.id, "dispute")}
+              >
+                ⚠️ Open Dispute
+              </button>
+            </>
+          )}
+
+          {user?.role === "seller" && order.status === "paid" && (
+            <button
+              className="bg-blue-600 text-white px-3 py-1 mt-2 rounded"
+              onClick={() => updateOrderStatus(order.id, "ship")}
+            >
+              📦 Confirm Shipment
+            </button>
+          )}
+
+          {user?.role === "logistics" && order.status === "shipped" && (
+            <button
+              className="bg-purple-600 text-white px-3 py-1 mt-2 rounded"
+              onClick={() => updateOrderStatus(order.id, "deliver")}
+            >
+              🚚 Confirm Delivery
+            </button>
+          )}
+
+          {user?.role === "admin" && (
+            <button
+              className="bg-orange-600 text-white px-3 py-1 mt-2 rounded"
+              onClick={() => updateOrderStatus(order.id, "override")}
+            >
+              🛠 Override Order
+            </button>
+          )}
+
+          {/* Chat Section */}
+          <div className="mt-4 border-t pt-2">
+            <h4 className="font-semibold mb-2">Chat</h4>
+            <OrderChat orderId={order.id} token={token} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default OrderTracking;
