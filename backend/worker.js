@@ -96,3 +96,69 @@ app.get("/api/orders", async (c) => {
 });
 
 export default app;
+// Handle role-based order actions
+app.post("/api/orders/:id/action", async (c) => {
+  const auth = c.req.header("Authorization");
+  if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
+  let payload;
+  try {
+    payload = verifyJWT(auth.split(" ")[1]);
+  } catch (e) {
+    return c.json({ error: "Invalid token" }, 401);
+  }
+
+  const { id } = c.req.param();
+  const { action } = await c.req.json();
+
+  // fetch current order
+  const { results } = await c.env.DB.prepare(
+    "SELECT * FROM orders WHERE id = ?"
+  ).bind(id).all();
+
+  if (!results || results.length === 0) {
+    return c.json({ error: "Order not found" }, 404);
+  }
+
+  const order = results[0];
+  let newStatus = order.status;
+
+  // Role-based transitions
+  if (payload.role === "buyer") {
+    if (action === "confirm" && order.status === "delivered") {
+      newStatus = "completed"; // release escrow
+    }
+    if (action === "dispute" && order.status === "delivered") {
+      newStatus = "disputed";
+    }
+  }
+
+  if (payload.role === "seller") {
+    if (action === "ship" && order.status === "paid") {
+      newStatus = "shipped";
+    }
+  }
+
+  if (payload.role === "logistics") {
+    if (action === "deliver" && order.status === "shipped") {
+      newStatus = "delivered";
+    }
+  }
+
+  if (payload.role === "admin" || payload.role === "support") {
+    if (action === "override") {
+      newStatus = "overridden";
+    }
+  }
+
+  if (newStatus === order.status) {
+    return c.json({ message: "Invalid action for current status" }, 400);
+  }
+
+  // update order status
+  await c.env.DB.prepare(
+    "UPDATE orders SET status = ? WHERE id = ?"
+  ).bind(newStatus, id).run();
+
+  return c.json({ message: `Order updated to ${newStatus}`, newStatus });
+});
