@@ -220,3 +220,137 @@ export default function OrderTracking({ user }) {
     </div>
   );
 }
+// frontend/src/pages/OrderTracking.jsx
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+
+function OrderTracking({ user }) {
+  const [orders, setOrders] = useState([]);
+  const [chatMessages, setChatMessages] = useState({});
+  const [newMessage, setNewMessage] = useState({});
+  const [newImage, setNewImage] = useState({});
+
+  useEffect(() => {
+    if (user) {
+      axios.get("/api/orders", { headers: { Authorization: `Bearer ${user.token}` } })
+        .then(res => setOrders(res.data))
+        .catch(err => console.error(err));
+    }
+  }, [user]);
+
+  const handleSendMessage = async (orderId) => {
+    if (!newMessage[orderId] && !newImage[orderId]) return;
+
+    const formData = new FormData();
+    if (newMessage[orderId]) formData.append("message", newMessage[orderId]);
+    if (newImage[orderId]) formData.append("image", newImage[orderId]);
+
+    await axios.post(`/api/orders/${orderId}/chat`, formData, {
+      headers: {
+        Authorization: `Bearer ${user.token}`,
+        "Content-Type": "multipart/form-data",
+      },
+    });
+
+    setNewMessage({ ...newMessage, [orderId]: "" });
+    setNewImage({ ...newImage, [orderId]: null });
+
+    // refresh chats
+    fetchChat(orderId);
+  };
+
+  const fetchChat = async (orderId) => {
+    const res = await axios.get(`/api/orders/${orderId}/chat`, {
+      headers: { Authorization: `Bearer ${user.token}` },
+    });
+    setChatMessages({ ...chatMessages, [orderId]: res.data });
+  };
+
+  return (
+    <div className="p-6">
+      <h2 className="text-2xl font-bold mb-4">Order Tracking</h2>
+      {orders.map((order) => (
+        <div key={order.id} className="border p-4 mb-6 rounded shadow">
+          <h3 className="font-semibold">
+            Order #{order.id} — {order.status}
+          </h3>
+          <p>Product: {order.product_name}</p>
+          <p>Quantity: {order.quantity}</p>
+          <p>Total: ${order.total_amount}</p>
+
+          {/* Action Buttons */}
+          <div className="mt-3 flex space-x-3">
+            {user.role === "buyer" && order.status === "delivered" && (
+              <>
+                <button className="bg-green-600 text-white px-3 py-1 rounded">
+                  Confirm & Release Funds
+                </button>
+                <button className="bg-yellow-500 text-white px-3 py-1 rounded">
+                  Open Dispute
+                </button>
+              </>
+            )}
+            {user.role === "seller" && order.status === "paid" && (
+              <button className="bg-blue-600 text-white px-3 py-1 rounded">
+                Confirm Shipment
+              </button>
+            )}
+            {user.role === "logistics" && order.status === "shipped" && (
+              <button className="bg-purple-600 text-white px-3 py-1 rounded">
+                Confirm Delivery
+              </button>
+            )}
+          </div>
+
+          {/* Chat Section */}
+          <div className="mt-4">
+            <h4 className="font-semibold mb-2">Order Chat</h4>
+            <div className="border p-2 h-40 overflow-y-scroll bg-gray-50">
+              {(chatMessages[order.id] || []).map((msg, i) => (
+                <div key={i} className="mb-2">
+                  <strong>{msg.sender}:</strong> {msg.message}
+                  {msg.image_url && (
+                    <div>
+                      <img
+                        src={msg.image_url}
+                        alt="chat upload"
+                        className="max-h-32 mt-2 rounded"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex mt-2 space-x-2">
+              <input
+                type="text"
+                placeholder="Type message..."
+                value={newMessage[order.id] || ""}
+                onChange={(e) =>
+                  setNewMessage({ ...newMessage, [order.id]: e.target.value })
+                }
+                className="flex-1 border px-2 py-1 rounded"
+              />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  setNewImage({ ...newImage, [order.id]: e.target.files[0] })
+                }
+                className="border px-2 py-1 rounded"
+              />
+              <button
+                onClick={() => handleSendMessage(order.id)}
+                className="bg-green-600 text-white px-3 py-1 rounded"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default OrderTracking;
