@@ -84,3 +84,12 @@ CREATE TABLE IF NOT EXISTS order_chats (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (order_id) REFERENCES orders(id)
 );
+-- Subaccounts (auto-created after KYC for a user)
+CREATE TABLE IF NOT EXISTS subaccounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  name TEXT,
+  balance REAL DEFAULT 0,  -- escrow released funds
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
