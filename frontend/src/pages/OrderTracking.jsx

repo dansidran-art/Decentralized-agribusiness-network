@@ -1,90 +1,105 @@
-import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import OrderChat from "./OrderChat";
 
 function OrderTracking({ user }) {
-  const { id } = useParams();
-  const [order, setOrder] = useState(null);
+  const [orders, setOrders] = useState([]);
+  const token = localStorage.getItem("token");
 
   useEffect(() => {
-    fetch(`/api/orders/${id}`)
+    if (token) {
+      fetch("/api/orders", {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then((res) => res.json())
+        .then((data) => setOrders(data.orders || []))
+        .catch(() => {});
+    }
+  }, [token]);
+
+  const updateOrderStatus = (orderId, action) => {
+    fetch(`/api/orders/${orderId}/action`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ action })
+    })
       .then((res) => res.json())
-      .then(setOrder);
-  }, [id]);
-
-  if (!order) return <p>Loading...</p>;
-
-  const handleAction = async (action) => {
-    const res = await fetch(`/api/orders/${id}/action`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    if (res.ok) {
-      const updated = await res.json();
-      setOrder(updated);
-    }
-  };
-
-  const openDispute = async () => {
-    const res = await fetch(`/api/disputes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId: id, reason: "Issue with transaction" }),
-    });
-    if (res.ok) {
-      alert("Dispute opened. Support will review.");
-    }
+      .then((data) => {
+        alert(data.message);
+        // refresh orders
+        setOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, status: data.newStatus } : o))
+        );
+      });
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-bold">Order Tracking</h1>
-      <p>Status: {order.status}</p>
-      <p>Total: ${order.total_amount}</p>
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-4">My Orders</h2>
+      {orders.length === 0 && <p>No orders found.</p>}
+      {orders.map((order) => (
+        <div key={order.id} className="border p-4 mb-6 rounded shadow">
+          <h3 className="font-semibold">
+            Order #{order.id} – {order.status}
+          </h3>
+          <p>Product ID: {order.product_id}</p>
+          <p>Quantity: {order.quantity}</p>
+          <p>Total: ${order.total_amount}</p>
 
-      {user?.role === "buyer" && (
-        <div>
-          <button
-            onClick={() => handleAction("release")}
-            className="px-4 py-2 bg-green-600 text-white rounded"
-          >
-            Confirm & Release Funds
-          </button>
-          <button
-            onClick={openDispute}
-            className="ml-2 px-4 py-2 bg-red-600 text-white rounded"
-          >
-            Open Dispute
-          </button>
+          {/* Role-specific actions */}
+          {user?.role === "buyer" && order.status === "delivered" && (
+            <>
+              <button
+                className="bg-green-600 text-white px-3 py-1 mr-2 mt-2 rounded"
+                onClick={() => updateOrderStatus(order.id, "confirm")}
+              >
+                ✅ Confirm & Release Funds
+              </button>
+              <button
+                className="bg-red-600 text-white px-3 py-1 mt-2 rounded"
+                onClick={() => updateOrderStatus(order.id, "dispute")}
+              >
+                ⚠️ Open Dispute
+              </button>
+            </>
+          )}
+
+          {user?.role === "seller" && order.status === "paid" && (
+            <button
+              className="bg-blue-600 text-white px-3 py-1 mt-2 rounded"
+              onClick={() => updateOrderStatus(order.id, "ship")}
+            >
+              📦 Confirm Shipment
+            </button>
+          )}
+
+          {user?.role === "logistics" && order.status === "shipped" && (
+            <button
+              className="bg-purple-600 text-white px-3 py-1 mt-2 rounded"
+              onClick={() => updateOrderStatus(order.id, "deliver")}
+            >
+              🚚 Confirm Delivery
+            </button>
+          )}
+
+          {user?.role === "admin" && (
+            <button
+              className="bg-orange-600 text-white px-3 py-1 mt-2 rounded"
+              onClick={() => updateOrderStatus(order.id, "override")}
+            >
+              🛠 Override Order
+            </button>
+          )}
+
+          {/* Chat Section */}
+          <div className="mt-4 border-t pt-2">
+            <h4 className="font-semibold mb-2">Chat</h4>
+            <OrderChat orderId={order.id} token={token} />
+          </div>
         </div>
-      )}
-
-      {user?.role === "seller" && (
-        <button
-          onClick={() => handleAction("ship")}
-          className="px-4 py-2 bg-blue-600 text-white rounded"
-        >
-          Confirm Shipment
-        </button>
-      )}
-
-      {user?.role === "logistics" && (
-        <button
-          onClick={() => handleAction("deliver")}
-          className="px-4 py-2 bg-purple-600 text-white rounded"
-        >
-          Confirm Delivery
-        </button>
-      )}
-
-      {user?.role === "support" || user?.role === "admin" ? (
-        <a
-          href={`/disputes/${id}`}
-          className="block mt-4 text-blue-600 underline"
-        >
-          View Dispute Chat
-        </a>
-      ) : null}
+      ))}
     </div>
   );
 }
