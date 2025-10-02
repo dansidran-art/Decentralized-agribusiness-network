@@ -120,3 +120,41 @@ app.get("/admin/users", async (c) => {
 });
 
 export default app;
+// --- Disputes with AI Chat ---
+app.post("/disputes", async (c) => {
+  const { orderId, userId, message, evidence } = await c.req.json();
+  const { genAI } = getEnv(c);
+
+  // Save chat message in disputes table
+  await c.env.DB.prepare(
+    "INSERT INTO disputes (order_id, user_id, message, evidence) VALUES (?, ?, ?, ?)"
+  ).bind(orderId, userId, message, evidence || null).run();
+
+  // Ask Gemini AI for mediation help
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const prompt = `Dispute on order ${orderId}. 
+User ${userId} says: "${message}". 
+Evidence: ${evidence || "none"}. 
+You are an AI mediator for an agribusiness marketplace. 
+Provide a helpful, neutral response.`;
+
+  const result = await model.generateContent(prompt);
+  const reply = result.response.text();
+
+  // Save AI reply also in DB
+  await c.env.DB.prepare(
+    "INSERT INTO disputes (order_id, user_id, message) VALUES (?, ?, ?)"
+  ).bind(orderId, 0, reply) // user_id=0 means AI/system
+    .run();
+
+  return c.json({ reply });
+});
+
+// Fetch dispute chat for an order
+app.get("/disputes/:orderId", async (c) => {
+  const orderId = c.req.param("orderId");
+  const rows = await c.env.DB.prepare(
+    "SELECT * FROM disputes WHERE order_id = ? ORDER BY created_at ASC"
+  ).bind(orderId).all();
+  return c.json(rows.results);
+});
