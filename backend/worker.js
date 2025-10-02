@@ -1,135 +1,98 @@
+// backend/worker.js
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { bearerAuth } from "hono/bearer-auth";
 import { drizzle } from "drizzle-orm/d1";
-import { eq } from "drizzle-orm";
-import { users, products, orders, disputes, disputeMessages } from "./schema.js";
 
 const app = new Hono();
+
 app.use("*", cors());
 
-// Helper: get DB
-const getDB = c => drizzle(c.env.DB);
+// Middleware for auth
+app.use("/api/*", async (c, next) => {
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader) return c.json({ error: "Unauthorized" }, 401);
 
-// ------------------ USERS ------------------
-app.post("/api/signup", async c => {
-  const { name, email, password } = await c.req.json();
-  const db = getDB(c);
-  await db.insert(users).values({ name, email, password_hash: password });
-  return c.json({ message: "User created" });
-});
-
-app.post("/api/login", async c => {
-  const { email, password } = await c.req.json();
-  const db = getDB(c);
-  const user = await db.query.users.findFirst({ where: eq(users.email, email) });
-  if (!user || user.password_hash !== password) {
-    return c.json({ error: "Invalid credentials" }, 401);
+  const token = authHeader.replace("Bearer ", "");
+  try {
+    const user = JSON.parse(atob(token.split(".")[1])); // simple JWT decode
+    c.set("user", user);
+    await next();
+  } catch {
+    return c.json({ error: "Invalid token" }, 401);
   }
-  return c.json({ message: "Login successful", user });
 });
 
-// ------------------ PRODUCTS ------------------
-app.post("/api/products", async c => {
-  const { user_id, name, description, price, quantity } = await c.req.json();
+// DB helper
+function getDB(c) {
+  return drizzle(c.env.DB);
+}
+
+/**
+ * ========================
+ * ORDERS CHAT + IMAGE UPLOAD
+ * ========================
+ */
+
+// fetch messages for order
+app.get("/api/orders/:id/chat", async (c) => {
   const db = getDB(c);
-  await db.insert(products).values({ user_id, name, description, price, quantity });
-  return c.json({ message: "Product listed" });
+  const orderId = c.req.param("id");
+
+  const rows = await db
+    .prepare("SELECT * FROM order_chats WHERE order_id = ? ORDER BY created_at ASC")
+    .bind(orderId)
+    .all();
+
+  return c.json(rows.results || []);
 });
 
-app.get("/api/products", async c => {
+// send message (text + optional image)
+app.post("/api/orders/:id/chat", async (c) => {
   const db = getDB(c);
-  const list = await db.select().from(products);
-  return c.json(list);
-});
+  const orderId = c.req.param("id");
+  const user = c.get("user");
 
-// ------------------ ORDERS ------------------
-app.post("/api/orders", async c => {
-  const { buyer_id, product_id, quantity } = await c.req.json();
-  const db = getDB(c);
-  const product = await db.query.products.findFirst({ where: eq(products.id, product_id) });
-  if (!product) return c.json({ error: "Product not found" }, 404);
+  const body = await c.req.parseBody();
 
-  const total = product.price * quantity;
-  await db.insert(orders).values({
-    buyer_id,
-    product_id,
-    quantity,
-    total_amount: total,
-    status: "created",
-    escrow_locked: 0,
-  });
+  const message = body["message"] || null;
+  let image_url = null;
 
-  return c.json({ message: "Order created. Awaiting payment" });
-});
-
-// List orders
-app.get("/api/orders", async c => {
-  const db = getDB(c);
-  const list = await db.select().from(orders);
-  return c.json({ orders: list });
-});
-
-// Handle actions (buyer/seller/logistics)
-app.post("/api/orders/:id/action", async c => {
-  const { action } = await c.req.json();
-  const orderId = parseInt(c.req.param("id"));
-  const db = getDB(c);
-
-  const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
-  if (!order) return c.json({ error: "Order not found" }, 404);
-
-  let statusUpdate = null;
-
-  switch (action) {
-    case "pay":
-      statusUpdate = "paid";
-      break;
-    case "ship":
-      statusUpdate = "shipped";
-      break;
-    case "deliver":
-      statusUpdate = "delivered";
-      break;
-    case "confirm_delivery":
-      statusUpdate = "released"; // escrow funds released
-      break;
-    case "dispute":
-      statusUpdate = "disputed";
-      await db.insert(disputes).values({ order_id: orderId, status: "open" });
-      break;
-    default:
-      return c.json({ error: "Invalid action" }, 400);
+  if (body["image"]) {
+    // Store in Cloudflare R2 bucket
+    const file = body["image"];
+    const key = `chat/${orderId}/${Date.now()}-${file.name}`;
+    await c.env.R2_BUCKET.put(key, file.stream());
+    image_url = `https://${c.env.R2_BUCKET_NAME}.r2.cloudflarestorage.com/${key}`;
   }
 
-  await db.update(orders).set({ status: statusUpdate }).where(eq(orders.id, orderId));
-  return c.json({ message: `Order updated: ${statusUpdate}` });
+  await db
+    .prepare(
+      "INSERT INTO order_chats (order_id, sender, message, image_url) VALUES (?, ?, ?, ?)"
+    )
+    .bind(orderId, user.email, message, image_url)
+    .run();
+
+  return c.json({ success: true });
 });
 
-// ------------------ DISPUTE CHAT ------------------
-// Get messages
-app.get("/api/disputes/:orderId", async c => {
+/**
+ * ========================
+ * ORDERS (basic list for tracking page)
+ * ========================
+ */
+app.get("/api/orders", async (c) => {
   const db = getDB(c);
-  const msgs = await db
-    .select()
-    .from(disputeMessages)
-    .where(eq(disputeMessages.order_id, parseInt(c.req.param("orderId"))));
-  return c.json({ messages: msgs });
-});
+  const user = c.get("user");
 
-// Post message
-app.post("/api/disputes/:orderId", async c => {
-  const { user_id, message, image_url } = await c.req.json();
-  const orderId = parseInt(c.req.param("orderId"));
-  const db = getDB(c);
+  const rows = await db
+    .prepare(
+      "SELECT o.*, p.name as product_name FROM orders o JOIN products p ON o.product_id = p.id WHERE o.buyer_id = ? OR p.user_id = ?"
+    )
+    .bind(user.id, user.id)
+    .all();
 
-  await db.insert(disputeMessages).values({
-    order_id: orderId,
-    user_id,
-    message,
-    image_url,
-  });
-
-  return c.json({ message: "Message sent" });
+  return c.json(rows.results || []);
 });
 
 export default app;
