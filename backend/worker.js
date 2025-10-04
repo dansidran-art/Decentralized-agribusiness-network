@@ -358,3 +358,84 @@ app.get("/api/withdrawals", async (c) => {
 
   return c.json(results || []);
 });
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+
+app.post("/api/verify/kyc", async (c) => {
+  try {
+    const { userId, idImageUrl, selfieImageUrl } = await c.req.json();
+
+    // Ask Gemini to verify ID and selfie match
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `
+You are verifying a user's KYC.
+The ID image is here: ${idImageUrl}
+The selfie image is here: ${selfieImageUrl}
+
+If the face on both images clearly match and the ID appears valid (no blur, tampering, or fake text),
+reply only with: "VERIFIED".
+Otherwise reply only with: "REJECTED".
+`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+
+    if (text === "VERIFIED") {
+      await c.env.DB.prepare(
+        "UPDATE users SET is_kyc_verified = 1 WHERE id = ?"
+      ).bind(userId).run();
+
+      return c.json({ success: true, message: "KYC verified by AI." });
+    } else {
+      return c.json({ success: false, message: "KYC rejected by AI." });
+    }
+  } catch (err) {
+    console.error(err);
+    return c.json({ success: false, error: "AI verification failed." });
+  }
+});
+
+app.post("/api/verify/withdrawal", async (c) => {
+  try {
+    const { userId, amount } = await c.req.json();
+
+    const user = await c.env.DB.prepare(
+      "SELECT is_kyc_verified FROM users WHERE id = ?"
+    ).bind(userId).first();
+
+    if (!user?.is_kyc_verified)
+      return c.json({
+        success: false,
+        message: "Withdrawal denied: user KYC not verified.",
+      });
+
+    // Ask Gemini to verify withdrawal legitimacy
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `
+You are simulating an AI-driven financial compliance assistant.
+The user (ID ${userId}) requests a withdrawal of ${amount} USD.
+Check if withdrawal amount is reasonable and no suspicious pattern.
+Reply only "APPROVED" or "REVIEW_NEEDED".
+`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+
+    if (text === "APPROVED") {
+      // You can simulate fund release here
+      return c.json({
+        success: true,
+        message: "Withdrawal approved and funds released.",
+      });
+    } else {
+      return c.json({
+        success: false,
+        message: "Withdrawal flagged for review by AI.",
+      });
+    }
+  } catch (err) {
+    console.error(err);
+    return c.json({ success: false, error: "AI withdrawal check failed." });
+  }
+});
