@@ -167,3 +167,4 @@ export default function App() {
     </Router>
   );
 }
+<Route path="/ai" element={<AiAssistant user={user} />} />
