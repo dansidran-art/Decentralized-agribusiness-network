@@ -1,4 +1,63 @@
-import { Hono } from "hono";
+// ---------------- WITHDRAWALS ----------------
+app.post("/api/withdraw", async (c) => {
+  const auth = c.req.header("Authorization");
+  if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
+  let payload;
+  try {
+    payload = verifyJWT(auth.split(" ")[1]);
+  } catch (e) {
+    return c.json({ error: "Invalid token" }, 401);
+  }
+
+  const { amount } = await c.req.json();
+  if (!amount || amount <= 0) return c.json({ error: "Invalid amount" }, 400);
+
+  // Check user is KYC verified
+  const { results: users } = await c.env.DB.prepare(
+    "SELECT is_kyc_verified FROM users WHERE id = ?"
+  )
+    .bind(payload.userId)
+    .all();
+
+  if (!users || users.length === 0 || users[0].is_kyc_verified !== 1) {
+    return c.json({ error: "KYC verification required" }, 403);
+  }
+
+  // Check balance
+  const { results: subs } = await c.env.DB.prepare(
+    "SELECT balance FROM subaccounts WHERE user_id = ?"
+  )
+    .bind(payload.userId)
+    .all();
+
+  if (!subs || subs.length === 0) return c.json({ error: "No subaccount found" }, 404);
+
+  const balance = subs[0].balance;
+  if (balance < amount) {
+    return c.json({ error: "Insufficient balance" }, 400);
+  }
+
+  // Deduct balance
+  await c.env.DB.prepare(
+    "UPDATE subaccounts SET balance = balance - ? WHERE user_id = ?"
+  )
+    .bind(amount, payload.userId)
+    .run();
+
+  // Add notification
+  await c.env.DB.prepare(
+    "INSERT INTO notifications (user_id, message) VALUES (?, ?)"
+  )
+    .bind(payload.userId, `Withdrawal of $${amount} requested.`)
+    .run();
+
+  return c.json({
+    success: true,
+    message: `Withdrawal of $${amount} processed (simulated).`,
+    newBalance: balance - amount,
+  });
+});import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { jwt } from "hono/jwt";
 import { nanoid } from "nanoid";
