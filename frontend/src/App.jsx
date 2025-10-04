@@ -1,79 +1,169 @@
-import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import Signup from "./components/Signup";
-import Login from "./components/Login";
-import Dashboard from "./components/Dashboard";
-import AdminPanel from "./components/AdminPanel";
-import OrderTracking from "./components/OrderTracking";
-import OrderChat from "./components/OrderChat";
+import React, { useEffect, useState } from "react";
+import { BrowserRouter as Router, Routes, Route, Link, Navigate } from "react-router-dom";
+import Signup from "./pages/Signup";
+import Login from "./pages/Login";
+import KYCPage from "./pages/KYCPage";
+import Marketplace from "./pages/Marketplace";
+import OrdersPage from "./pages/OrdersPage";
+import AdminPanel from "./pages/AdminPanel";
+import Withdrawals from "./pages/Withdrawals";
+import AIAssistant from "./components/AIAssistant";
 
-function App() {
+const Navbar = ({ user, onLogout }) => (
+  <nav className="bg-gray-900 text-white px-4 py-3 flex justify-between items-center">
+    <div className="flex gap-4 items-center">
+      <Link to="/" className="font-bold text-xl text-green-400">
+        AgriNetwork
+      </Link>
+      {user && (
+        <>
+          <Link to="/marketplace" className="hover:text-green-400">
+            Marketplace
+          </Link>
+          <Link to="/orders" className="hover:text-green-400">
+            Orders
+          </Link>
+          <Link to="/withdrawals" className="hover:text-green-400">
+            Withdraw
+          </Link>
+          {user.role === "admin" && (
+            <Link to="/admin" className="hover:text-red-400">
+              Admin Panel
+            </Link>
+          )}
+        </>
+      )}
+    </div>
+
+    <div>
+      {user ? (
+        <button
+          onClick={onLogout}
+          className="bg-red-600 hover:bg-red-700 px-4 py-1 rounded text-sm"
+        >
+          Logout
+        </button>
+      ) : (
+        <>
+          <Link to="/login" className="mr-4 hover:text-green-400">
+            Login
+          </Link>
+          <Link
+            to="/signup"
+            className="bg-green-600 hover:bg-green-700 px-4 py-1 rounded text-sm"
+          >
+            Signup
+          </Link>
+        </>
+      )}
+    </div>
+  </nav>
+);
+
+export default function App() {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem("token") || "");
+  const [token, setToken] = useState(localStorage.getItem("token"));
 
   useEffect(() => {
-    if (token) {
-      // Decode or fetch user details
-      fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.user) setUser(data.user);
-        })
-        .catch(() => {});
-    }
+    const fetchUser = async () => {
+      if (!token) return;
+      try {
+        const res = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data);
+        } else {
+          setUser(null);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchUser();
   }, [token]);
 
   const handleLogout = () => {
-    setToken("");
-    setUser(null);
     localStorage.removeItem("token");
+    setUser(null);
+    setToken(null);
   };
 
   return (
     <Router>
-      <nav className="bg-green-700 text-white p-4 flex justify-between">
-        <Link to="/" className="font-bold">AgriNetwork</Link>
-        <div>
-          {user ? (
-            <>
-              <Link to="/dashboard" className="ml-4">Dashboard</Link>
-              <Link to="/orders" className="ml-4">Track Orders</Link>
-              {user?.role === "admin" && (
-                <Link to="/admin" className="ml-4 text-red-300">Admin Panel</Link>
-              )}
-              <button onClick={handleLogout} className="ml-4 bg-red-600 px-2 py-1 rounded">
-                Logout
-              </button>
-            </>
-          ) : (
-            <>
-              <Link to="/signup" className="ml-4">Signup</Link>
-              <Link to="/login" className="ml-4">Login</Link>
-            </>
-          )}
-        </div>
-      </nav>
+      <Navbar user={user} onLogout={handleLogout} />
+      <main className="p-4 bg-gray-50 min-h-screen">
+        <Routes>
+          <Route
+            path="/"
+            element={
+              user ? (
+                <Navigate to="/marketplace" />
+              ) : (
+                <div className="text-center mt-16">
+                  <h1 className="text-3xl font-bold text-green-700">
+                    Welcome to AgriNetwork
+                  </h1>
+                  <p className="mt-4 text-gray-600">
+                    A decentralized marketplace for verified farmers and buyers.
+                  </p>
+                  <div className="mt-6 space-x-4">
+                    <Link
+                      to="/signup"
+                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+                    >
+                      Get Started
+                    </Link>
+                    <Link
+                      to="/login"
+                      className="border border-green-600 text-green-600 px-4 py-2 rounded hover:bg-green-100"
+                    >
+                      Login
+                    </Link>
+                  </div>
+                </div>
+              )
+            }
+          />
+          <Route path="/signup" element={<Signup setToken={setToken} />} />
+          <Route path="/login" element={<Login setToken={setToken} />} />
+          <Route
+            path="/kyc"
+            element={user ? <KYCPage user={user} /> : <Navigate to="/login" />}
+          />
+          <Route
+            path="/marketplace"
+            element={
+              user ? <Marketplace user={user} /> : <Navigate to="/login" />
+            }
+          />
+          <Route
+            path="/orders"
+            element={
+              user ? <OrdersPage user={user} /> : <Navigate to="/login" />
+            }
+          />
+          <Route
+            path="/withdrawals"
+            element={
+              user ? <Withdrawals user={user} /> : <Navigate to="/login" />
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              user?.role === "admin" ? (
+                <AdminPanel user={user} />
+              ) : (
+                <Navigate to="/" />
+              )
+            }
+          />
+        </Routes>
 
-      <Routes>
-        <Route path="/" element={<h1 className="p-6">Welcome to AgriNetwork 🌱</h1>} />
-        <Route path="/signup" element={<Signup setToken={setToken} />} />
-        <Route path="/login" element={<Login setToken={setToken} />} />
-        <Route path="/dashboard" element={<Dashboard user={user} />} />
-        <Route path="/orders" element={
-          <div className="p-6">
-            <h2 className="text-xl font-bold">Order Tracking</h2>
-            {/* Example orderId=1, replace with real ID from backend */}
-            <OrderTracking user={user} />
-            <div className="mt-6">
-              <h3 className="font-semibold mb-2">Chat with Buyer/Seller/Logistics</h3>
-              <OrderChat orderId={1} token={token} />
-            </div>
-          </div>
-        } />
-        <Route path="/admin" element={<AdminPanel user={user} />} />
-      </Routes>
+        {user && <AIAssistant user={user} />}
+      </main>
     </Router>
   );
 }
-
-export default App;
