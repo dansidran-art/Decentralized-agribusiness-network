@@ -337,3 +337,24 @@ app.get("/api/notifications", async (c) => {
 });
 
 export default app;
+// ---------------- WITHDRAWAL HISTORY ----------------
+app.get("/api/withdrawals", async (c) => {
+  const auth = c.req.header("Authorization");
+  if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
+  let payload;
+  try {
+    payload = verifyJWT(auth.split(" ")[1]);
+  } catch (e) {
+    return c.json({ error: "Invalid token" }, 401);
+  }
+
+  // Fetch withdrawal history for the user
+  const { results } = await c.env.DB.prepare(
+    "SELECT id, amount, status, created_at FROM withdrawals WHERE user_id = ? ORDER BY created_at DESC"
+  )
+    .bind(payload.userId)
+    .all();
+
+  return c.json(results || []);
+});
