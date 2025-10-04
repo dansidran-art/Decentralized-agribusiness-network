@@ -93,3 +93,12 @@ CREATE TABLE IF NOT EXISTS subaccounts (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
+-- Withdrawals (simulated payout requests)
+CREATE TABLE IF NOT EXISTS withdrawals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  amount REAL NOT NULL,
+  status TEXT DEFAULT 'pending', -- pending | completed | failed
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
