@@ -1,0 +1,116 @@
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+
+export default function Marketplace({ user }) {
+  const [products, setProducts] = useState([]);
+  const [newProduct, setNewProduct] = useState({ name: "", description: "", price: "", quantity: "" });
+  const [loading, setLoading] = useState(false);
+
+  const loadProducts = async () => {
+    const res = await axios.get("/api/products");
+    setProducts(res.data);
+  };
+
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  const addProduct = async (e) => {
+    e.preventDefault();
+    if (!user?.is_kyc_verified) {
+      alert("❌ Only KYC-verified users can add products!");
+      return;
+    }
+    setLoading(true);
+    try {
+      await axios.post("/api/products", newProduct);
+      setNewProduct({ name: "", description: "", price: "", quantity: "" });
+      await loadProducts();
+      alert("✅ Product added successfully!");
+    } catch (err) {
+      alert("Error adding product");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const buyProduct = async (id, price) => {
+    if (!user) return alert("Please login first!");
+    const qty = prompt("Enter quantity to buy:");
+    if (!qty || isNaN(qty)) return;
+
+    try {
+      await axios.post("/api/orders", { product_id: id, quantity: qty });
+      alert(`✅ Order created. ₦${price * qty} held in escrow.`);
+    } catch (err) {
+      alert("Error creating order.");
+    }
+  };
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">🌾 Agribusiness Marketplace</h1>
+
+      {user?.is_kyc_verified && (
+        <form onSubmit={addProduct} className="mb-6 bg-green-50 p-4 rounded-lg">
+          <h2 className="font-semibold mb-2">Add a New Product</h2>
+          <input
+            type="text"
+            placeholder="Product name"
+            value={newProduct.name}
+            onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+            className="border p-2 rounded w-full mb-2"
+            required
+          />
+          <textarea
+            placeholder="Description"
+            value={newProduct.description}
+            onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
+            className="border p-2 rounded w-full mb-2"
+          />
+          <input
+            type="number"
+            placeholder="Price (₦)"
+            value={newProduct.price}
+            onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
+            className="border p-2 rounded w-full mb-2"
+            required
+          />
+          <input
+            type="number"
+            placeholder="Quantity"
+            value={newProduct.quantity}
+            onChange={(e) => setNewProduct({ ...newProduct, quantity: e.target.value })}
+            className="border p-2 rounded w-full mb-2"
+            required
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-green-600 text-white px-4 py-2 rounded"
+          >
+            {loading ? "Saving..." : "Add Product"}
+          </button>
+        </form>
+      )}
+
+      <h2 className="text-xl font-semibold mb-3">Available Products</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {products.map((p) => (
+          <div key={p.id} className="border p-4 rounded-lg shadow-sm">
+            <h3 className="font-bold text-lg">{p.name}</h3>
+            <p className="text-gray-700">{p.description}</p>
+            <p className="mt-2 text-green-700 font-semibold">₦{p.price}</p>
+            <p className="text-sm text-gray-500">Qty: {p.quantity}</p>
+            <button
+              onClick={() => buyProduct(p.id, p.price)}
+              className="mt-3 bg-blue-600 text-white px-3 py-1 rounded"
+            >
+              Buy
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
