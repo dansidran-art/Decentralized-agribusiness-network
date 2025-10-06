@@ -91,3 +91,129 @@ app.post("/api/withdraw", async (c) => {
 app.get("/", (c) => c.text("AgriNetwork Backend API Running ✅"));
 
 export default app;
+// --- ORDER ACTION HANDLER ---
+app.post("/api/orders/:id/action", async (c) => {
+  const orderId = c.req.param("id");
+  const { action, userId } = await c.req.json();
+
+  const db = c.env.DB;
+
+  // Fetch current order info
+  const order = await db.prepare("SELECT * FROM orders WHERE id = ?").bind(orderId).first();
+  if (!order) return c.json({ error: "Order not found" }, 404);
+
+  let newStatus = order.status;
+  let message = "";
+
+  switch (action) {
+    case "ship":
+      newStatus = "shipped";
+      message = "Shipment confirmed by seller.";
+      break;
+
+    case "deliver":
+      newStatus = "delivered";
+      message = "Delivery confirmed by logistics.";
+      break;
+
+    case "release":
+      newStatus = "completed";
+      message = "Buyer confirmed receipt, funds released.";
+      // simulate fund release to seller subaccount
+      await db
+        .prepare("UPDATE wallets SET balance = balance + ? WHERE user_id = ?")
+        .bind(order.total_amount, order.seller_id)
+        .run();
+      break;
+
+    case "dispute":
+      newStatus = "dispute";
+      message = "Dispute opened. Admin & AI assistant will review.";
+      break;
+
+    default:
+      return c.json({ error: "Invalid action" }, 400);
+  }
+
+  await db.prepare("UPDATE orders SET status = ? WHERE id = ?").bind(newStatus, orderId).run();
+
+  return c.json({ message, status: newStatus });
+});
+
+// --- ORDER CHAT HANDLER ---
+app.get("/api/chat/:orderId", async (c) => {
+  const orderId = c.req.param("orderId");
+  const db = c.env.DB;
+
+  const chats = await db.prepare("SELECT * FROM order_chats WHERE order_id = ? ORDER BY created_at ASC").bind(orderId).all();
+
+  return c.json(chats.results || []);
+});
+
+app.post("/api/chat/:orderId", async (c) => {
+  const orderId = c.req.param("orderId");
+  const formData = await c.req.formData();
+
+  const userId = formData.get("userId");
+  const message = formData.get("message") || "";
+  const file = formData.get("file");
+
+  const db = c.env.DB;
+
+  // simulate file upload (you can replace with R2 or Cloudflare Images)
+  let imageUrl = null;
+  if (file) {
+    const arrayBuffer = await file.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
+    imageUrl = `data:${file.type};base64,${base64}`;
+  }
+
+  await db
+    .prepare("INSERT INTO order_chats (order_id, user_id, message, image) VALUES (?, ?, ?, ?)")
+    .bind(orderId, userId, message, imageUrl)
+    .run();
+
+  // Send to AI dispute assistant
+  const aiResponse = await handleAIResponse(c, orderId, message);
+
+  return c.json({
+    sender: "user",
+    user_id: userId,
+    message,
+    image: imageUrl,
+    ai_response: aiResponse,
+  });
+});
+
+// --- GEMINI AI DISPUTE ASSISTANT (SIMULATION) ---
+async function handleAIResponse(c, orderId, userMessage) {
+  const prompt = `
+You are an AI dispute resolver for an agribusiness marketplace.
+User message: "${userMessage}"
+Your job: respond in a helpful and fair way. Keep replies short (2-3 sentences).
+`;
+
+  try {
+    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=" + c.env.GEMINI_API_KEY, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+      }),
+    });
+
+    const data = await res.json();
+    const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "AI assistant is reviewing this case.";
+
+    // save AI reply in chat
+    await c.env.DB
+      .prepare("INSERT INTO order_chats (order_id, user_id, sender, message) VALUES (?, ?, ?, ?)")
+      .bind(orderId, "ai", "ai", aiText)
+      .run();
+
+    return aiText;
+  } catch (err) {
+    console.error("AI error:", err);
+    return "AI assistant unavailable. Please wait for admin review.";
+  }
+}
