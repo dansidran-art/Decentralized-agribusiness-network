@@ -77,19 +77,43 @@ jobs:
             - 💾 Fixes committed if needed
             - 📊 ESLint summary:
               ```text
-              $(cat eslint-report.txt | head -n 20)
+              $(head -n 20 eslint-report.txt)
               ```
             - 🎨 Prettier summary:
               ```text
-              $(cat prettier-report.txt | head -n 20)
+              $(head -n 20 prettier-report.txt)
               ```
 
       - name: 🚨 Create AI Debug Issue if Unresolved Errors
         if: steps.lint.outcome == 'failure' || steps.test.outcome == 'failure'
-        uses: peter-evans/create-issue-from-file@v5
-        with:
-          title: "🚨 AI Auto Debug Report – Unresolved Issues"
-          content-filepath: eslint-report.txt
-          labels: bug, ai-debug, auto-detected
-          assignees: ${{ github.actor }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🧠 Generating AI summary using Gemini/OpenAI..."
+          echo "==== AI SUMMARY ====" > ai-summary.txt
+          
+          SUMMARY=$(curl -s https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer ${{ secrets.OPENAI_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "model": "gpt-4o-mini",
+              "messages": [
+                {"role": "system", "content": "You are an AI developer assistant analyzing code errors."},
+                {"role": "user", "content": "Here are the lint/test errors:\n'$(cat eslint-report.txt test-report.txt 2>/dev/null | head -n 150)'\n\nGenerate a clear issue summary with probable causes and suggested fixes."}
+              ]
+            }' | jq -r '.choices[0].message.content')
+          
+          echo "$SUMMARY" >> ai-summary.txt
+
+          echo "==== ESLINT REPORT ====" >> ai-summary.txt
+          cat eslint-report.txt >> ai-summary.txt || true
+
+          echo "==== TEST REPORT ====" >> ai-summary.txt
+          cat test-report.txt >> ai-summary.txt || true
+          
+          echo "Creating GitHub issue with AI summary..."
+          gh issue create \
+            --title "🚨 AI Debug Report – Unresolved Errors" \
+            --body-file ai-summary.txt \
+            --label "bug, ai-debug, auto-detected" \
+            --assignee "${{ github.actor }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
