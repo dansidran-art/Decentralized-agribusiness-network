@@ -217,3 +217,10 @@ Your job: respond in a helpful and fair way. Keep replies short (2-3 sentences).
     return "AI assistant unavailable. Please wait for admin review.";
   }
 }
+// Middleware to enforce KYC verification before certain actions
+async function requireKyc(c, userId) {
+  const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(userId).first();
+  if (!user) return { ok: false, message: "User not found." };
+  if (!user.is_kyc_verified) return { ok: false, message: "You must complete KYC before performing this action." };
+  return { ok: true, user };
+}
