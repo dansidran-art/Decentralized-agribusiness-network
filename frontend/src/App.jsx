@@ -168,3 +168,4 @@ export default function App() {
   );
 }
 <Route path="/ai" element={<AiAssistant user={user} />} />
+<Route path="/kyc-upload" element={<KycUpload user={user} />} />
