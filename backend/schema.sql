@@ -55,3 +55,12 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
+CREATE TABLE IF NOT EXISTS order_chats (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER,
+  user_id TEXT,
+  sender TEXT DEFAULT 'user',
+  message TEXT,
+  image TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
