@@ -1,19 +1,20 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import Signup from "./pages/Signup";
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import KYCVerification from "./pages/KYCVerification";
-import SubAccount from "./pages/SubAccount";
-import Marketplace from "./pages/Marketplace";
 import AdminPanel from "./pages/AdminPanel";
-import "./index.css";
+import Tracking from "./pages/Tracking";
+import Marketplace from "./pages/Marketplace";
+import SubAccount from "./pages/SubAccount";
+import KYC from "./pages/KYC";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 
 export default function App() {
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem("user");
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("user");
+    if (stored) setUser(JSON.parse(stored));
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("user");
@@ -22,45 +23,43 @@ export default function App() {
 
   return (
     <Router>
-      <nav className="bg-green-700 text-white px-6 py-3 flex justify-between items-center shadow-md">
-        <Link to="/" className="text-xl font-bold">
-          🌾 AgroNet
-        </Link>
-        <div className="space-x-4">
-          {user ? (
+      <nav className="p-4 bg-green-700 text-white flex justify-between">
+        <div>
+          <Link to="/" className="font-bold">AgriNetwork</Link>
+          <Link to="/marketplace" className="ml-4">Marketplace</Link>
+          {user && (
             <>
-              <Link to="/dashboard">Dashboard</Link>
-              <Link to="/subaccount">Subaccount</Link>
-              <Link to="/marketplace">Marketplace</Link>
-              <Link to="/kyc">KYC</Link>
+              <Link to="/subaccount" className="ml-4">SubAccount</Link>
+              <Link to="/tracking" className="ml-4">Tracking</Link>
+              <Link to="/kyc" className="ml-4">KYC</Link>
               {user.role === "admin" && (
-                <Link to="/admin" className="text-red-300">Admin</Link>
+                <Link to="/admin" className="ml-4 text-yellow-300">Admin</Link>
               )}
-              <button onClick={handleLogout} className="ml-3 bg-red-600 px-3 py-1 rounded">
-                Logout
-              </button>
             </>
+          )}
+        </div>
+        <div>
+          {user ? (
+            <button onClick={handleLogout}>Logout</button>
           ) : (
             <>
-              <Link to="/signup">Signup</Link>
               <Link to="/login">Login</Link>
+              <Link to="/signup" className="ml-4">Signup</Link>
             </>
           )}
         </div>
       </nav>
 
-      <main className="p-6">
-        <Routes>
-          <Route path="/" element={<Dashboard user={user} />} />
-          <Route path="/signup" element={<Signup setUser={setUser} />} />
-          <Route path="/login" element={<Login setUser={setUser} />} />
-          <Route path="/dashboard" element={<Dashboard user={user} />} />
-          <Route path="/kyc" element={<KYCVerification user={user} />} />
-          <Route path="/subaccount" element={<SubAccount user={user} />} />
-          <Route path="/marketplace" element={<Marketplace user={user} />} />
-          <Route path="/admin" element={<AdminPanel user={user} />} />
-        </Routes>
-      </main>
+      <Routes>
+        <Route path="/" element={<Marketplace />} />
+        <Route path="/marketplace" element={<Marketplace />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/login" element={<Login setUser={setUser} />} />
+        <Route path="/kyc" element={<KYC user={user} />} />
+        <Route path="/subaccount" element={<SubAccount user={user} />} />
+        <Route path="/tracking" element={<Tracking user={user} />} />
+        <Route path="/admin" element={<AdminPanel user={user} />} />
+      </Routes>
     </Router>
   );
 }
