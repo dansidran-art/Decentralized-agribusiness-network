@@ -9,6 +9,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 jobs:
   ai-auto-debug:
@@ -27,10 +28,13 @@ jobs:
         run: npm ci || npm install
 
       - name: 🔍 Run ESLint and Prettier checks
+        id: lint
+        continue-on-error: true
         run: |
-          echo "Running lint + prettier..."
-          npx eslint . --ext .js,.jsx || true
-          npx prettier --check . || true
+          echo "Running ESLint and Prettier..."
+          npx eslint . --ext .js,.jsx > eslint-report.txt || true
+          npx prettier --check . > prettier-report.txt || true
+          echo "✅ Lint checks complete"
 
       - name: 🧠 Auto-fix lint & style issues
         run: |
@@ -38,18 +42,54 @@ jobs:
           npx eslint . --ext .js,.jsx --fix || true
           npx prettier --write . || true
 
-      - name: 🧪 Run tests (if any)
+      - name: 🧪 Run tests (if available)
+        id: test
+        continue-on-error: true
         run: |
           echo "Running tests..."
-          npm test || echo "No tests defined"
+          npm test || echo "❌ Tests failed" > test-report.txt
 
       - name: 💾 Commit & Push auto-fixes
+        id: commit
         run: |
           echo "Committing and pushing changes..."
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "AI Auto Debug Bot"
           git add .
-          git diff-index --quiet HEAD || git commit -m "🤖 AI Auto Debug: auto-fix lint/style issues"
-          git push
+          if git diff-index --quiet HEAD; then
+            echo "no_changes=true" >> $GITHUB_ENV
+          else
+            git commit -m "🤖 AI Auto Debug: auto-fix lint/style issues"
+            git push
+            echo "no_changes=false" >> $GITHUB_ENV
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 💬 Post Debug Summary to PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: AI Auto Debug 🤖
+          message: |
+            ✅ **AI Auto Debug completed**
+            - 🧠 Lint/style issues checked automatically
+            - 💾 Fixes committed if needed
+            - 📊 ESLint summary:
+              ```text
+              $(cat eslint-report.txt | head -n 20)
+              ```
+            - 🎨 Prettier summary:
+              ```text
+              $(cat prettier-report.txt | head -n 20)
+              ```
+
+      - name: 🚨 Create AI Debug Issue if Unresolved Errors
+        if: steps.lint.outcome == 'failure' || steps.test.outcome == 'failure'
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "🚨 AI Auto Debug Report – Unresolved Issues"
+          content-filepath: eslint-report.txt
+          labels: bug, ai-debug, auto-detected
+          assignees: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
