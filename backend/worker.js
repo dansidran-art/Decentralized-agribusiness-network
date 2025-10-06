@@ -471,3 +471,84 @@ User role: ${role}.
     return c.json({ success: false, error: "AI assistant failed." });
   }
 });
+// ---- AI Vision KYC Verification ----
+app.post("/api/kyc/upload", async (c) => {
+  try {
+    const formData = await c.req.formData();
+    const userId = formData.get("userId");
+    const idImage = formData.get("idImage");
+    const selfieImage = formData.get("selfieImage");
+
+    if (!idImage || !selfieImage) {
+      return c.json({ success: false, error: "Missing images." });
+    }
+
+    // Upload both images to Cloudflare Images (configured in dashboard)
+    const uploadToCloudflare = async (file) => {
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/images/v1`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.CF_API_TOKEN}`,
+          },
+          body: file,
+        }
+      );
+      const data = await res.json();
+      return data?.result?.variants?.[0] || null;
+    };
+
+    const idUrl = await uploadToCloudflare(idImage);
+    const selfieUrl = await uploadToCloudflare(selfieImage);
+
+    if (!idUrl || !selfieUrl)
+      return c.json({ success: false, error: "Failed to upload images." });
+
+    // Gemini Vision check
+    const vision = new GoogleGenerativeAI(env.GEMINI_API_KEY).getGenerativeModel({
+      model: "gemini-1.5-pro-vision",
+    });
+
+    const prompt = `
+You are verifying a government ID and a selfie.
+Your goal:
+- Confirm both faces are the same person.
+- Detect any tampering or fake ID signs.
+Respond with: "VERIFIED" or "REJECTED" and a short reason.
+`;
+
+    const result = await vision.generateContent([
+      { role: "system", parts: [{ text: prompt }] },
+      {
+        role: "user",
+        parts: [
+          { text: "Compare these two images and decide if the ID is valid." },
+          { inlineData: { mimeType: "image/jpeg", data: await idImage.arrayBuffer() } },
+          { inlineData: { mimeType: "image/jpeg", data: await selfieImage.arrayBuffer() } },
+        ],
+      },
+    ]);
+
+    const reply = result.response.text();
+    const isVerified = reply.toLowerCase().includes("verified");
+
+    // Update DB
+    if (isVerified) {
+      await c.env.DB.prepare(
+        "UPDATE users SET is_kyc_verified = 1 WHERE id = ?"
+      ).bind(userId).run();
+    }
+
+    return c.json({
+      success: true,
+      result: isVerified ? "VERIFIED" : "REJECTED",
+      reason: reply,
+      idUrl,
+      selfieUrl,
+    });
+  } catch (err) {
+    console.error(err);
+    return c.json({ success: false, error: "KYC AI check failed." });
+  }
+});
