@@ -1,116 +1,105 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 
-export default function Marketplace({ user }) {
-  const [products, setProducts] = useState([]);
+const API = import.meta.env.VITE_API_URL || "http://localhost:8787";
+
+export default function MarketplacePage({ user, products }) {
+  const [myProducts, setMyProducts] = useState([]);
   const [newProduct, setNewProduct] = useState({ name: "", description: "", price: "", quantity: "" });
-  const [loading, setLoading] = useState(false);
-
-  const loadProducts = async () => {
-    const res = await axios.get("/api/products");
-    setProducts(res.data);
-  };
 
   useEffect(() => {
-    loadProducts();
-  }, []);
-
-  const addProduct = async (e) => {
-    e.preventDefault();
-    if (!user?.is_kyc_verified) {
-      alert("❌ Only KYC-verified users can add products!");
-      return;
+    if (user?.is_kyc_verified) {
+      fetch(`${API}/api/my-products?user_id=${user.id}`)
+        .then((res) => res.json())
+        .then(setMyProducts)
+        .catch(() => {});
     }
-    setLoading(true);
-    try {
-      await axios.post("/api/products", newProduct);
+  }, [user]);
+
+  const addProduct = async () => {
+    if (!user.is_kyc_verified) return alert("Only verified users can list products!");
+    const res = await fetch(`${API}/api/products`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...newProduct, user_id: user.id }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert("Product added!");
       setNewProduct({ name: "", description: "", price: "", quantity: "" });
-      await loadProducts();
-      alert("✅ Product added successfully!");
-    } catch (err) {
-      alert("Error adding product");
-    } finally {
-      setLoading(false);
+      setMyProducts([...myProducts, data.product]);
     }
   };
 
-  const buyProduct = async (id, price) => {
-    if (!user) return alert("Please login first!");
-    const qty = prompt("Enter quantity to buy:");
-    if (!qty || isNaN(qty)) return;
-
-    try {
-      await axios.post("/api/orders", { product_id: id, quantity: qty });
-      alert(`✅ Order created. ₦${price * qty} held in escrow.`);
-    } catch (err) {
-      alert("Error creating order.");
-    }
+  const buyProduct = async (productId) => {
+    const quantity = prompt("Enter quantity to buy:");
+    if (!quantity) return;
+    const res = await fetch(`${API}/api/orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ buyer_id: user.id, product_id: productId, quantity }),
+    });
+    const data = await res.json();
+    if (data.success) alert("Order created! Escrow pending payment.");
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">🌾 Agribusiness Marketplace</h1>
+    <div>
+      <h2 className="text-xl font-bold mb-4">🌾 Marketplace</h2>
 
-      {user?.is_kyc_verified && (
-        <form onSubmit={addProduct} className="mb-6 bg-green-50 p-4 rounded-lg">
-          <h2 className="font-semibold mb-2">Add a New Product</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {products.map((p) => (
+          <div key={p.id} className="bg-white shadow rounded-lg p-4">
+            <h3 className="font-bold">{p.name}</h3>
+            <p>{p.description}</p>
+            <p className="text-green-700 font-semibold">${p.price}</p>
+            <p>Qty: {p.quantity}</p>
+            {user.id !== p.user_id && (
+              <button
+                onClick={() => buyProduct(p.id)}
+                className="mt-2 bg-green-600 text-white px-3 py-1 rounded"
+              >
+                Buy
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {user.is_kyc_verified && (
+        <div className="mt-8 bg-white p-4 rounded shadow-md">
+          <h3 className="font-semibold mb-2">Add Product</h3>
           <input
             type="text"
-            placeholder="Product name"
+            placeholder="Name"
+            className="border p-2 w-full mb-2"
             value={newProduct.name}
             onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
-            className="border p-2 rounded w-full mb-2"
-            required
           />
           <textarea
             placeholder="Description"
+            className="border p-2 w-full mb-2"
             value={newProduct.description}
             onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
-            className="border p-2 rounded w-full mb-2"
           />
           <input
             type="number"
-            placeholder="Price (₦)"
+            placeholder="Price"
+            className="border p-2 w-full mb-2"
             value={newProduct.price}
             onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
-            className="border p-2 rounded w-full mb-2"
-            required
           />
           <input
             type="number"
             placeholder="Quantity"
+            className="border p-2 w-full mb-2"
             value={newProduct.quantity}
             onChange={(e) => setNewProduct({ ...newProduct, quantity: e.target.value })}
-            className="border p-2 rounded w-full mb-2"
-            required
           />
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-green-600 text-white px-4 py-2 rounded"
-          >
-            {loading ? "Saving..." : "Add Product"}
+          <button onClick={addProduct} className="bg-green-700 text-white px-4 py-2 rounded">
+            Add Product
           </button>
-        </form>
+        </div>
       )}
-
-      <h2 className="text-xl font-semibold mb-3">Available Products</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {products.map((p) => (
-          <div key={p.id} className="border p-4 rounded-lg shadow-sm">
-            <h3 className="font-bold text-lg">{p.name}</h3>
-            <p className="text-gray-700">{p.description}</p>
-            <p className="mt-2 text-green-700 font-semibold">₦{p.price}</p>
-            <p className="text-sm text-gray-500">Qty: {p.quantity}</p>
-            <button
-              onClick={() => buyProduct(p.id, p.price)}
-              className="mt-3 bg-blue-600 text-white px-3 py-1 rounded"
-            >
-              Buy
-            </button>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
