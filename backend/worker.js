@@ -552,3 +552,55 @@ Respond with: "VERIFIED" or "REJECTED" and a short reason.
     return c.json({ success: false, error: "KYC AI check failed." });
   }
 });
+// ---- Auto-create Subaccount after KYC Verification ----
+app.post("/api/create-subaccount", async (c) => {
+  try {
+    const { userId } = await c.req.json();
+
+    // Fetch user details
+    const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(userId).first();
+    if (!user) return c.json({ success: false, error: "User not found" });
+
+    if (!user.is_kyc_verified)
+      return c.json({ success: false, error: "User must be KYC verified first" });
+
+    // Simulate payment gateway subaccount creation
+    const subaccountId = "sub_" + Math.random().toString(36).substring(2, 10);
+    const accountNumber = "23" + Math.floor(10000000 + Math.random() * 90000000);
+
+    // Example API call to payment provider (you can replace this later)
+    /*
+    const res = await fetch("https://api.paymentprovider.com/subaccounts", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.PAYMENT_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: user.name,
+        email: user.email,
+        account_type: "split",
+      }),
+    });
+    const subData = await res.json();
+    const subaccountId = subData.id;
+    */
+
+    // Store subaccount
+    await c.env.DB.prepare(
+      `UPDATE users SET subaccount_id = ?, account_number = ? WHERE id = ?`
+    )
+      .bind(subaccountId, accountNumber, userId)
+      .run();
+
+    return c.json({
+      success: true,
+      message: "Subaccount created successfully",
+      subaccountId,
+      accountNumber,
+    });
+  } catch (err) {
+    console.error(err);
+    return c.json({ success: false, error: "Subaccount creation failed" });
+  }
+});
