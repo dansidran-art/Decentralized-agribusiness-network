@@ -1,1 +1,1 @@
-# Decentralized-agribusiness-network
+![AI Auto Debug](https://github.com/murtalamaaruf/cloudflare-app/actions/workflows/ai-auto-debug.yml/badge.svg)# Decentralized-agribusiness-network
