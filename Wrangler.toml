@@ -1,25 +1,11 @@
-name = "agrinetwork-backend"
+name = "agrinetwork"
 main = "backend/worker.js"
-compatibility_date = "2024-10-01"
+compatibility_date = "2024-09-01"
 
-# D1 database binding
 [[d1_databases]]
 binding = "DB"
 database_name = "agrinetwork"
-database_id = "<YOUR_D1_DATABASE_ID>"
+database_id = "your-d1-id-here"
 
-# KV storage binding (for notifications, caching, etc.)
-[[kv_namespaces]]
-binding = "KV"
-id = "<YOUR_KV_NAMESPACE_ID>"
-
-# AI binding (Google Gemini via Cloudflare AI Gateway)
-[ai]
-binding = "AI"
-
-# Add any environment variables if needed
 [vars]
-JWT_SECRET = "super-secret-key"
-[[r2_buckets]]
-binding = "R2_BUCKET"
-bucket_name = "agrinetwork-chat"
+APP_URL = "https://your-cloudflare-worker-url.workers.dev"
