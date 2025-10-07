@@ -58,3 +58,6 @@ export default Navbar;
 {user?.role === "admin" && (
   <Link to="/admin/team" className="ml-4 text-red-600">Team Management</Link>
 )}
+{(user?.role === "admin" || user?.role === "support") && (
+  <Link to="/admin/ai" className="ml-4 text-blue-600">AI Assistant</Link>
+)}
