@@ -499,4 +499,58 @@ app.delete("/api/admin/team/:id", requireAdmin, async (c) => {
   if (result.success) return c.json({ success: true });
   return c.json({ error: "Unable to delete or user not found" }, 400);
 });
+// ===================== AI ASSISTANT (Gemini API) =====================
+
+// Middleware: Admin or Support only
+async function requireTeamMember(c, next) {
+  const token = c.req.header("Authorization")?.split(" ")[1];
+  if (!token) return c.json({ error: "Unauthorized" }, 401);
+  try {
+    const payload = await verifyToken(token, c.env.JWT_SECRET);
+    const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?")
+      .bind(payload.userId)
+      .first();
+    if (!user || (user.role !== "admin" && user.role !== "support"))
+      return c.json({ error: "Forbidden" }, 403);
+    c.set("teamUser", user);
+    await next();
+  } catch (err) {
+    return c.json({ error: "Invalid token" }, 401);
+  }
+}
+
+// Gemini AI Assistant
+app.post("/api/ai/assistant", requireTeamMember, async (c) => {
+  const { message, context } = await c.req.json();
+
+  if (!message)
+    return c.json({ error: "Message required" }, 400);
+
+  const apiKey = c.env.GEMINI_API_KEY;
+  if (!apiKey) return c.json({ error: "Missing Gemini API key" }, 500);
+
+  try {
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=" + apiKey, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: `You are a support AI assistant for a decentralized agribusiness marketplace. Context: ${context || "general"}.` },
+              { text: message }
+            ]
+          }
+        ]
+      }),
+    });
+
+    const data = await response.json();
+    const aiMessage = data?.candidates?.[0]?.content?.parts?.[0]?.text || "No response from AI";
+
+    return c.json({ reply: aiMessage });
+  } catch (err) {
+    return c.json({ error: err.message }, 500);
+  }
+});
 export default app;
