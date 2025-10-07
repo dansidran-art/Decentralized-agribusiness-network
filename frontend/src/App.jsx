@@ -140,3 +140,6 @@ function AuthForm({ onLogin, onSignup }) {
 import AdminTeamPage from "./pages/AdminTeamPage";
 
 <Route path="/admin/team" element={<AdminTeamPage user={user} />} />
+import AdminAIAssistant from "./pages/AdminAIAssistant";
+
+<Route path="/admin/ai" element={<AdminAIAssistant user={user} />} />
