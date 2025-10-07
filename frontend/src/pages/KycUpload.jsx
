@@ -61,4 +61,4 @@ export default function KycUpload({ user }) {
       {status && <p className="mt-4 text-center">{status}</p>}
     </div>
   );
-}
+}A
