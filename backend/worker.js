@@ -437,5 +437,66 @@ app.post("/api/withdraw", async (c) => {
   await notifyKV(c, `withdraw_${userId}_${tx}`, { userId, amount, tx });
   return c.json({ success: true, tx, amount });
 });
+// ===================== ADMIN TEAM MANAGEMENT =====================
 
+// Middleware: Check admin role
+async function requireAdmin(c, next) {
+  const token = c.req.header("Authorization")?.split(" ")[1];
+  if (!token) return c.json({ error: "Unauthorized" }, 401);
+  try {
+    const payload = await verifyToken(token, c.env.JWT_SECRET);
+    const user = await c.env.DB.prepare("SELECT * FROM users WHERE id = ?")
+      .bind(payload.userId)
+      .first();
+    if (!user || user.role !== "admin") return c.json({ error: "Forbidden" }, 403);
+    c.set("admin", user);
+    await next();
+  } catch (err) {
+    return c.json({ error: "Invalid token" }, 401);
+  }
+}
+
+// 🧑‍💼 List all team members (admin + support)
+app.get("/api/admin/team", requireAdmin, async (c) => {
+  const rows = await c.env.DB.prepare(
+    "SELECT id, name, email, role, created_at FROM users WHERE role != 'user'"
+  ).all();
+  return c.json(rows.results);
+});
+
+// ➕ Add a new team member
+app.post("/api/admin/team", requireAdmin, async (c) => {
+  const body = await c.req.json();
+  const { name, email, password, role } = body;
+
+  if (!name || !email || !password || !role) {
+    return c.json({ error: "Missing fields" }, 400);
+  }
+  if (!["admin", "support"].includes(role)) {
+    return c.json({ error: "Invalid role" }, 400);
+  }
+
+  const password_hash = await hashPassword(password);
+  try {
+    await c.env.DB.prepare(
+      "INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)"
+    ).bind(name, email, password_hash, role).run();
+    return c.json({ success: true });
+  } catch (err) {
+    return c.json({ error: "Email already exists or failed" }, 400);
+  }
+});
+
+// ❌ Remove a team member
+app.delete("/api/admin/team/:id", requireAdmin, async (c) => {
+  const id = c.req.param("id");
+  if (!id) return c.json({ error: "Missing id" }, 400);
+
+  const result = await c.env.DB.prepare("DELETE FROM users WHERE id = ? AND role != 'admin'")
+    .bind(id)
+    .run();
+
+  if (result.success) return c.json({ success: true });
+  return c.json({ error: "Unable to delete or user not found" }, 400);
+});
 export default app;
