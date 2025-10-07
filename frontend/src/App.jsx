@@ -137,3 +137,6 @@ function AuthForm({ onLogin, onSignup }) {
     </form>
   );
 }
+import AdminTeamPage from "./pages/AdminTeamPage";
+
+<Route path="/admin/team" element={<AdminTeamPage user={user} />} />
