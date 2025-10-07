@@ -55,3 +55,6 @@ function Navbar({ user, onLogout }) {
 export default Navbar;
 <Link to="/ai" className="ml-4 text-green-700">AI Assistant</Link>
 <Link to="/kyc-upload" className="ml-4 text-green-600">KYC Upload</Link>
+{user?.role === "admin" && (
+  <Link to="/admin/team" className="ml-4 text-red-600">Team Management</Link>
+)}
