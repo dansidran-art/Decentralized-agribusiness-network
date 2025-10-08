@@ -9,3 +9,9 @@ database_id = "your-d1-id-here"
 
 [vars]
 APP_URL = "https://your-cloudflare-worker-url.workers.dev"
+# wrangler.toml (wrangler v3.88.0^)
+[observability.logs]
+enabled = true
+
+
+
