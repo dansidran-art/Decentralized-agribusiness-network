@@ -2,14 +2,20 @@ name = "agrinetwork"
 main = "backend/worker.js"
 compatibility_date = "2024-09-01"
 
+account_id = "${CLOUDFLARE_ACCOUNT_ID}"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "agrinetwork"
-database_id = "your-d1-id-here"
+database_id = "${D1_DATABASE_ID}"
+
+[[kv_namespaces]]
+binding = "NOTIFICATIONS_KV"
+id = "${KV_NAMESPACE_ID}"
 
 [vars]
-APP_URL = "https://your-cloudflare-worker-url.workers.dev"
+APP_URL = "${APP_URL}"
+GEMINI_API_KEY = "${GEMINI_API_KEY}"
 
-# Wrangler configuration (for wrangler v3.88.0 or later)
 [observability.logs]
 enabled = true
