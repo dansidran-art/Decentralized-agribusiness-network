@@ -3,24 +3,36 @@ name: 🚀 Deploy AgriNetwork to Cloudflare Workers
 on:
   push:
     branches:
-      - main  # Deploy automatically when pushing to main
+      - main  # auto deploy on push to main
 
 jobs:
   deploy:
-    name: Deploy Worker
+    name: Deploy to Cloudflare
     runs-on: ubuntu-latest
 
     steps:
       - name: 🧩 Checkout repository
         uses: actions/checkout@v4
 
-      - name: ⚙️ Setup Bun runtime
+      - name: ⚙️ Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
 
       - name: 📦 Install dependencies
         run: bun install
+
+      - name: 🧱 Run D1 migrations (if any)
+        run: |
+          if [ -d "migrations" ]; then
+            echo "Running D1 migrations..."
+            npx wrangler d1 migrations apply agrinetwork
+          else
+            echo "No migrations folder found — skipping."
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: ☁️ Deploy to Cloudflare
         run: npx wrangler deploy
